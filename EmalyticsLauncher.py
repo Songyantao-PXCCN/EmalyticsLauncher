@@ -20,7 +20,7 @@ HELLO = r"""
 
 3）运行期选择站，显示实时日志。
 
-4) 慎用Kill, 本程序目前无法在 Kill 的情况下合理回收系统资源，
+4) 慎用Kill
 如果因为文件锁问题无法再次开启，请在 资源监视器 中手动删除 station.exe 进程。
 
 5) 关闭程序前，请手动对所有站执行 Stop，原因同上。
@@ -31,18 +31,21 @@ HELLO = r"""
     黄色：正在关闭
     无色：未运行
                             -- Song Yantao
-                            -- Ver 0.2 @ 2022.06.03-4:30
+                            -- Ver 0.3 @ 2022.06.03-12:00
                             
 @change log
 Ver 0.2 修复 station.exe 路径bug
+Ver 0.3 修复 Kill ,及其他自身崩溃问题
 """
 import pathlib
 import sys
 import os
+
 STATION_PATH = os.path.split(sys.argv[0])[0]
 
 print(str(STATION_PATH))
 # STATION_PATH = r"C:\Users\pyxx76\Niagara4.10\PhoenixContact\stations"
+
 
 class Controller:
     def __init__(self):
@@ -91,66 +94,68 @@ class Controller:
             entry.ui_do_kill()
 
     def setStationBg(self, stationEntry: misc.StationEntry, bg):
-        vs = self._window['-STATION LIST-'].Values
-        for idx, v in enumerate(vs):
-            if self._entityMap[v] == stationEntry:
-                if idx is not None:
-                    self._window['-STATION LIST-'].TKListbox.itemconfigure(idx, bg=bg)
+        self._window.write_event_value('-THREAD CHANGE BG-', (stationEntry.getStationName(), bg))
 
     def append_lop(self, msg):
-        with self._log_lock:
-            tklog = self._window['-LOG-']
-            tklog.update(msg, append=True)
-            if tklog.TKText.count('1.0', tk.END, "lines")[0] > 5000:
-                tklog.TKText.delete('1.0', f"1000.0")
-                log.debug("清理1000行日志")
+        self._window.write_event_value('-THREAD APPEND-', msg)
 
     def change_log_page(self, stationEntry: misc.StationEntry):
-        with self._log_lock:
-            log.debug(f"切换日志页到:{stationEntry}")
-            tklog = self._window['-LOG-']
-            tklog.update("".join(stationEntry.get_buffered_log()))
+        log.debug(f"切换日志页到:{stationEntry}")
+        tklog = self._window['-LOG-']
+        tklog.update("".join(stationEntry.get_buffered_log()))
 
     def loop(self):
         self._refreshThread.start()
         while True:
-            event, values = self._window.read()
-            if event:
-                # self._window['-LOG-'].update(event + "\n", append=True)
+            try:
+                event, values = self._window.read()
+                if event:
+                    # self._window['-LOG-'].update(event + "\n", append=True)
 
-                # print("EVENT:" + event)
-                # print(values['-STATION LIST-'])
+                    # print("EVENT:" + event)
+                    # print(values['-STATION LIST-'])
+                    ...
+                if event in (sg.WINDOW_CLOSED, 'Exit'):
+                    # 退出
+                    break
+                if event == "-THREAD APPEND-":
+                    tklog = self._window['-LOG-']
+                    tklog.update(values["-THREAD APPEND-"], append=True)
+                    if tklog.TKText.count('1.0', tk.END, "lines")[0] > 5000:
+                        tklog.TKText.delete('1.0', f"1000.0")
+                        log.debug("清理1000行日志")
+                elif event == '-STATION LIST-':
+                    current = values['-STATION LIST-']
+                    # 游走在列表中
+                    last = None
+                    for n, i in self._entityMap.items():
+                        i.ui_select(n in current)
+
+                    if len(current) > 0:
+                        self.change_log_page(self._entityMap[current[-1]])
+
+                elif event == '-THREAD CHANGE BG-':
+                    sn, bg = values['-THREAD CHANGE BG-']
+                    for idx, v in enumerate(self._window['-STATION LIST-'].Values):
+                        if v == sn:
+                            self._window['-STATION LIST-'].TKListbox.itemconfigure(idx, bg=bg)
+
+                elif event == '-FILTER-':
+                    # 筛选逻辑
+                    new_list = [i for i in self._entityMap.keys() if values['-FILTER-'].lower() in i.lower()]
+                    self._window['-STATION LIST-'].update(new_list)
+                    for idx, v in enumerate(new_list):
+                        e = self._entityMap[v]
+                        self._window['-STATION LIST-'].TKListbox.itemconfigure(idx, bg=e._getCurrentBg())
+
+                elif event == 'Start':
+                    self.do_start_station(set(map(lambda name: self._entityMap[name], values['-STATION LIST-'])))
+                elif event == 'Stop':
+                    self.do_stop_station(set(map(lambda name: self._entityMap[name], values['-STATION LIST-'])))
+                elif event == 'Kill':
+                    self.do_kill_station(set(map(lambda name: self._entityMap[name], values['-STATION LIST-'])))
+            except:
                 ...
-            if event in (sg.WINDOW_CLOSED, 'Exit'):
-                # 退出
-                break
-            elif event == '-STATION LIST-':
-                current = values['-STATION LIST-']
-                # 游走在列表中
-                last = None
-                for n, i in self._entityMap.items():
-                    i.ui_select(n in current)
-
-                if len(current) > 0:
-                    self.change_log_page(self._entityMap[current[-1]])
-
-
-
-            elif event == '-FILTER-':
-                # 筛选逻辑
-                new_list = [i for i in self._entityMap.keys() if values['-FILTER-'].lower() in i.lower()]
-                self._window['-STATION LIST-'].update(new_list)
-                for v in new_list:
-                    e = self._entityMap[v]
-                    self.setStationBg(e, e._getCurrentBg())
-
-            elif event == 'Start':
-                self.do_start_station(set(map(lambda name: self._entityMap[name], values['-STATION LIST-'])))
-            elif event == 'Stop':
-                self.do_stop_station(set(map(lambda name: self._entityMap[name], values['-STATION LIST-'])))
-            elif event == 'Kill':
-                self.do_kill_station(set(map(lambda name: self._entityMap[name], values['-STATION LIST-'])))
-
         self._stopping = True
         with self._cond:
             self._cond.notify_all()

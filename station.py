@@ -1,12 +1,15 @@
 import os
+import signal
 import subprocess
 import threading
 import time
+import traceback
+
 import setting
 
 
 class Station(threading.Thread):
-    STATION_EXE = setting.CONF.get("platform",'station_exe_path')
+    STATION_EXE = setting.CONF.get("platform", 'station_exe_path')
 
     def __init__(self, stationName: str, messageConsumer, quitNotifier, exceptionNotifier):
         super().__init__(name=stationName)
@@ -22,7 +25,7 @@ class Station(threading.Thread):
         self._isRunning = True
         self._proc = subprocess.Popen(
             fr"{self.STATION_EXE} {self._stationName}",
-            shell=True,
+            shell=False,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -53,8 +56,12 @@ class Station(threading.Thread):
         if self._proc is not None and self._isRunning:
             try:
                 self._userShutting = True
-                self._proc.kill()
-            except:
+                self._proc.send_signal(signal.CTRL_C_EVENT)
+                self._proc.send_signal(signal.SIGTERM)
+                print("KILL")
+            except Exception as e:
+
+                traceback.print_exc()
                 ...
             finally:
                 self._isRunning = False

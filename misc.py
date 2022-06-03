@@ -65,6 +65,8 @@ class StationEntry:
         if self._process.is_alive():
             log.debug(f"杀死->{self.getStationName()}")
             self.ui_set_bg("")
+            self._process.stop()
+            self._process.kill()
             self._process.kill()
         else:
             log.error(f"{self.getStationName()} 未在运行，忽略杀命令")
